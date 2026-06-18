@@ -9,7 +9,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from backend.feature_extraction import build_rf_feature_vector
+from feature_extraction import build_rf_feature_vector
 
 
 def apply_harvest_sanity_check(status_name: str, raw_days: float, temperature: float) -> int:
