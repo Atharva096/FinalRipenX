@@ -161,7 +161,7 @@ def export_extracted_features_csv(
 
 
 if __name__ == "__main__":
-    from backend.app.config import BASE_DATASET_DIR
+    from app.config import BASE_DATASET_DIR
 
     METADATA_CSV = "mango_metadata.csv"
     OUTPUT_CSV = "extracted_features.csv"

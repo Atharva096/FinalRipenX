@@ -3,7 +3,7 @@ import csv
 import random
 
 # --- Configuration ---
-from backend.app.config import BASE_DATASET_DIR
+from app.config import BASE_DATASET_DIR
 
 IMAGE_DIR = BASE_DATASET_DIR
 OUTPUT_CSV = "mango_metadata.csv"

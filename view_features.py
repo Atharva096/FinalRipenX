@@ -4,7 +4,7 @@ from feature_extraction import extract_hsv_features, extract_lbp_features, extra
 
 # --- 1. Choose a real image from your dataset ---
 import os
-from backend.app.config import BASE_DATASET_DIR
+from app.config import BASE_DATASET_DIR
 
 # --- 1. Choose a real image from your dataset ---
 # This automatically creates: D:\RipenX\mango_dataset\mango_data\train\ripe\327(4).jpg

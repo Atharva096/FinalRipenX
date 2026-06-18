@@ -10,16 +10,16 @@ import sys
 from pathlib import Path
 import random
 
-from backend.app.config import MODEL_PATH, BASE_DIR, RF_MODEL_PATH, BASE_DATASET_DIR, ALLOWED_EXTENSIONS
-from backend.app.schemas.response import PredictionResponse, ErrorResponse
-from backend.app.utils.image_processor import ImageProcessor
-from backend.app.models.predictor import predictor
+from app.config import MODEL_PATH, BASE_DIR, RF_MODEL_PATH, BASE_DATASET_DIR, ALLOWED_EXTENSIONS
+from app.schemas.response import PredictionResponse, ErrorResponse
+from app.utils.image_processor import ImageProcessor
+from app.models.predictor import predictor
 
 # Ensure repo root is importable so we can import `feature_extraction.py`
 if str(BASE_DIR) not in sys.path:
     sys.path.append(str(BASE_DIR))
 from feature_extraction import extract_combined_features
-from backend.app.services.harvest import predict_harvest
+from app.services.harvest import predict_harvest
 from export_recommendation import (
     DEFAULT_CULTIVAR,
     format_regulatory_compliance_block,

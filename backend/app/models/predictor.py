@@ -1,7 +1,7 @@
 import joblib
 import numpy as np
 from pathlib import Path
-from backend.app.config import MODEL_PATH, RIPENESS_CLASSES
+from app.config import MODEL_PATH, RIPENESS_CLASSES
 import logging
 
 logging.basicConfig(level=logging.INFO)

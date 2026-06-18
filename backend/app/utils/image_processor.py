@@ -1,7 +1,7 @@
 from PIL import Image
 import io
 import numpy as np
-from backend.app.config import ALLOWED_EXTENSIONS, MAX_FILE_SIZE
+from app.config import ALLOWED_EXTENSIONS, MAX_FILE_SIZE
 
 class ImageProcessor:
     @staticmethod
