@@ -18,9 +18,9 @@ from app.models.predictor import predictor
 # Ensure repo root is importable so we can import `feature_extraction.py`
 if str(BASE_DIR) not in sys.path:
     sys.path.append(str(BASE_DIR))
-from backend.feature_extraction import extract_combined_features
+from feature_extraction import extract_combined_features
 from app.services.harvest import predict_harvest
-from backend.export_recommendation import (
+from export_recommendation import (
     DEFAULT_CULTIVAR,
     format_regulatory_compliance_block,
     get_mandatory_regulatory_compliance,
