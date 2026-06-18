@@ -8,7 +8,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import joblib
 
-from feature_extraction import (
+from backend.feature_extraction import (
     extract_combined_features,
     export_extracted_features_csv,
     build_rf_feature_vector,

@@ -4,13 +4,13 @@ import numpy as np
 import tensorflow as tf
 import joblib
 
-from feature_extraction import extract_combined_features
-from export_recommendation import (
+from backend.feature_extraction import extract_combined_features
+from backend.export_recommendation import (
     DEFAULT_CULTIVAR,
     get_mandatory_regulatory_compliance,
     recommend_export_destination,
 )
-from harvest_inference import (
+from backend.harvest_inference import (
     estimate_harvest_days,
     format_harvest_message,
     load_rf_feature_columns,
