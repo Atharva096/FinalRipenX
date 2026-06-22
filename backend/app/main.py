@@ -10,21 +10,23 @@ import sys
 from pathlib import Path
 import random
 
-from backend.app.config import MODEL_PATH, BASE_DIR, RF_MODEL_PATH, BASE_DATASET_DIR, ALLOWED_EXTENSIONS
-from backend.app.schemas.response import PredictionResponse, ErrorResponse
-from backend.app.utils.image_processor import ImageProcessor
-from backend.app.utils.mango_validator import (
+from app.config import MODEL_PATH, BASE_DIR, RF_MODEL_PATH, BASE_DATASET_DIR, ALLOWED_EXTENSIONS
+from app.schemas.response import PredictionResponse, ErrorResponse
+from app.utils.image_processor import ImageProcessor
+from app.utils.mango_validator import (
     WRONG_INPUT_MESSAGE,
     ensure_mango_image,
     ensure_mango_prediction,
+    init_mango_validator,
+    validator_status,
 )
-from backend.app.models.predictor import predictor
+from app.models.predictor import predictor
 
 # Ensure repo root is importable so we can import `feature_extraction.py`
 if str(BASE_DIR) not in sys.path:
     sys.path.append(str(BASE_DIR))
 from feature_extraction import extract_combined_features
-from backend.app.services.harvest import predict_harvest
+from app.services.harvest import predict_harvest
 from export_recommendation import (
     DEFAULT_CULTIVAR,
     format_regulatory_compliance_block,
@@ -111,6 +113,12 @@ async def startup_event():
             if files:
                 example_files_by_folder[folder] = files
         logger.info(f"Loaded sample images for classes: {list(example_files_by_folder.keys())}")
+
+        init_mango_validator()
+        status = validator_status()
+        logger.info("Mango validator status: %s", status)
+        if not status["ready"]:
+            logger.warning("Mango validator NOT ready — non-mango images may slip through")
     except Exception as e:
         logger.error(f"Failed to load model: {e}")
         raise
@@ -129,6 +137,7 @@ async def health_check():
     return {
         "status": "healthy" if predictor.is_loaded else "unhealthy",
         "model_loaded": predictor.is_loaded,
+        "mango_validator": validator_status(),
         "timestamp": datetime.now()
     }
 
