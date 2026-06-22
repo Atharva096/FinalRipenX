@@ -1,7 +1,13 @@
 from PIL import Image
 import io
+import cv2
 import numpy as np
-from app.config import ALLOWED_EXTENSIONS, MAX_FILE_SIZE
+from backend.app.config import ALLOWED_EXTENSIONS, MAX_FILE_SIZE
+
+
+class NotMangoImageError(Exception):
+    """Raised when the uploaded image does not appear to be a mango."""
+
 
 class ImageProcessor:
     @staticmethod
@@ -18,7 +24,32 @@ class ImageProcessor:
             return False, f"File too large: {size/1024/1024:.2f}MB (max 10MB)"
         
         return True, "OK"
-    
+
+    @staticmethod
+    def validate_mango_image(image) -> None:
+        """
+        Verify the upload looks like a mango (yellow/orange/green fruit tones).
+        Raises NotMangoImageError with 'Wrong input entered' when it does not.
+        """
+        if isinstance(image, Image.Image):
+            img_bgr = cv2.cvtColor(np.array(image.convert("RGB")), cv2.COLOR_RGB2BGR)
+        else:
+            img_bgr = image
+
+        img_bgr = cv2.resize(img_bgr, (224, 224))
+        hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+
+        # Ripe yellow-orange, green unripe, and reddish ripe mango hues.
+        yellow_orange = cv2.inRange(hsv, np.array([10, 40, 40]), np.array([35, 255, 255]))
+        green_unripe = cv2.inRange(hsv, np.array([35, 40, 40]), np.array([85, 255, 255]))
+        red_ripe = cv2.inRange(hsv, np.array([0, 40, 40]), np.array([10, 255, 255]))
+
+        mango_pixels = np.count_nonzero(yellow_orange | green_unripe | red_ripe)
+        mango_ratio = mango_pixels / (img_bgr.shape[0] * img_bgr.shape[1])
+
+        if mango_ratio < 0.12:
+            raise NotMangoImageError("Wrong input entered")
+
     @staticmethod
     def process_image(file):
         """

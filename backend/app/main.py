@@ -37,10 +37,32 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def _reject_non_mango_image(exc: ValueError) -> None:
-    if str(exc) == WRONG_INPUT_MESSAGE:
-        raise HTTPException(status_code=400, detail=WRONG_INPUT_MESSAGE) from exc
-    raise exc
+class NotMangoImageError(Exception):
+    """Raised when the uploaded image is determined not to be a mango."""
+    pass
+
+
+def _check_mango_image(image_array) -> None:
+    """Pre-prediction check: verify the raw image looks like a mango."""
+    try:
+        ensure_mango_image(image_array)
+    except ValueError as exc:
+        if str(exc) == WRONG_INPUT_MESSAGE:
+            raise NotMangoImageError(WRONG_INPUT_MESSAGE) from exc
+        raise
+
+
+def _check_mango_prediction(image_array, class_name: str) -> None:
+    """Post-prediction sanity check: verify the predicted class is consistent
+    with a mango image (guards against false positives slipping past the
+    first check)."""
+    try:
+        ensure_mango_prediction(image_array, class_name)
+    except ValueError as exc:
+        if str(exc) == WRONG_INPUT_MESSAGE:
+            raise NotMangoImageError(WRONG_INPUT_MESSAGE) from exc
+        raise
+
 
 app = FastAPI(
     title="Mango Ripeness Detection API",
@@ -85,7 +107,6 @@ async def startup_event():
                 p for p in class_dir.iterdir()
                 if p.is_file() and p.suffix.lower() in ALLOWED_EXTENSIONS
             ]
-            # Keep it light: frontend just needs a few images.
             files = sorted(files, key=lambda p: p.name)[:20]
             if files:
                 example_files_by_folder[folder] = files
@@ -144,31 +165,32 @@ async def predict_ripeness(
         is_valid, message = ImageProcessor.validate_file(file.file, file.filename)
         if not is_valid:
             raise HTTPException(status_code=400, detail=message)
-        
+
         # Read image bytes (don't preprocess - let transformers handle it)
         file_bytes = await file.read()
-        
+
         # Convert to PIL Image for predictor
         from PIL import Image
         import io
         image = Image.open(io.BytesIO(file_bytes)).convert('RGB')
         image_array = np.array(image)
 
+        # Pre-prediction mango check
         try:
-            ensure_mango_image(image_array)
-        except ValueError as exc:
-            _reject_non_mango_image(exc)
-        
+            _check_mango_image(image_array)
+        except NotMangoImageError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
         # Make prediction (pass PIL Image, not numpy array)
         prediction = predictor.predict(image)
 
+        # Post-prediction mango consistency check
         try:
-            ensure_mango_prediction(image_array, prediction["class_name"])
-        except ValueError as exc:
-            _reject_non_mango_image(exc)
+            _check_mango_prediction(image_array, prediction["class_name"])
+        except NotMangoImageError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
         # Extract HSV+LBP features for RF regression.
-        # `extract_combined_features` expects a file path, so we persist the upload to a temp file.
         suffix = Path(file.filename).suffix or ".jpg"
         tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
         try:
@@ -212,7 +234,7 @@ async def predict_ripeness(
             ripeness_class=prediction["class_name"],
             confidence=prediction["confidence"],
             confidence_percentage={
-                k: f"{v*100:.2f}%" 
+                k: f"{v*100:.2f}%"
                 for k, v in prediction["all_probabilities"].items()
             },
             harvest_estimate_days=harvest_days,
@@ -223,7 +245,7 @@ async def predict_ripeness(
             processed_at=datetime.now(),
             message=message,
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -240,7 +262,7 @@ async def batch_predict(
     """Batch prediction for multiple images"""
     from PIL import Image
     import io
-    
+
     results = []
     for file in files:
         try:
@@ -248,35 +270,31 @@ async def batch_predict(
             if not is_valid:
                 results.append({"filename": file.filename, "error": message})
                 continue
-            
+
             file_bytes = await file.read()
             image = Image.open(io.BytesIO(file_bytes)).convert('RGB')
             image_array = np.array(image)
 
             try:
-                ensure_mango_image(image_array)
-            except ValueError as exc:
-                if str(exc) == WRONG_INPUT_MESSAGE:
-                    results.append({"filename": file.filename, "error": WRONG_INPUT_MESSAGE})
-                    continue
-                raise
-            
+                _check_mango_image(image_array)
+            except NotMangoImageError as e:
+                results.append({"filename": file.filename, "error": str(e)})
+                continue
+
             prediction = predictor.predict(image)
 
             try:
-                ensure_mango_prediction(image_array, prediction["class_name"])
-            except ValueError as exc:
-                if str(exc) == WRONG_INPUT_MESSAGE:
-                    results.append({"filename": file.filename, "error": WRONG_INPUT_MESSAGE})
-                    continue
-                raise
+                _check_mango_prediction(image_array, prediction["class_name"])
+            except NotMangoImageError as e:
+                results.append({"filename": file.filename, "error": str(e)})
+                continue
 
             suffix = Path(file.filename).suffix or ".jpg"
             tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
             try:
                 tmp.write(file_bytes)
                 tmp.flush()
-                tmp.close()  # Important on Windows: allow OpenCV to read the file
+                tmp.close()
                 texture_color_features = extract_combined_features(tmp.name)
             finally:
                 Path(tmp.name).unlink(missing_ok=True)
@@ -323,7 +341,7 @@ async def batch_predict(
         except Exception as e:
             logger.error(f"Batch prediction error for {file.filename}: {e}")
             results.append({"filename": file.filename, "error": str(e)})
-    
+
     return {"results": results, "total": len(results)}
 
 if __name__ == "__main__":
