@@ -8,14 +8,14 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import joblib
 
-from backend.feature_extraction import (
+from feature_extraction import (
     extract_combined_features,
     export_extracted_features_csv,
     build_rf_feature_vector,
     get_rf_prob_column_names,
     get_visual_feature_column_names,
 )
-from app.config import BASE_DATASET_DIR
+from backend.app.config import BASE_DATASET_DIR
 
 _REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 _LOCAL_DATASET = os.path.join(_REPO_ROOT, "Mango_data", "train")

@@ -164,6 +164,16 @@ export default function App() {
                   setPreview(f ? URL.createObjectURL(f) : "");
                 }}
               />
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={(e) => {
+                  const f = e.target.files?.[0] || null;
+                  setFile(f);
+                  setPreview(f ? URL.createObjectURL(f) : "");
+                }}
+              />
               <div className="env">
                 <label>
                   Temp (deg C)

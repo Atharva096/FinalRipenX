@@ -1,6 +1,6 @@
 """Harvest estimation helpers for the FastAPI app."""
 
-from app.config import RF_COLUMNS_PATH
+from backend.app.config import RF_COLUMNS_PATH
 from harvest_inference import (
     estimate_harvest_days,
     format_harvest_message,

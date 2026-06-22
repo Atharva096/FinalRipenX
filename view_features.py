@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-from backend.feature_extraction import extract_hsv_features, extract_lbp_features, extract_combined_features
+from feature_extraction import extract_hsv_features, extract_lbp_features, extract_combined_features
 
 # --- 1. Choose a real image from your dataset ---
 import os
