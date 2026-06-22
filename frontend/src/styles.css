@@ -286,12 +286,43 @@ body {
   gap: 10px;
 }
 
+.field-label {
+  font-size: 13px;
+  color: #4f6057;
+  display: grid;
+  gap: 6px;
+}
+
 .upload-box input[type="file"] {
   width: 100%;
   padding: 10px;
   border: 1px dashed #d2d8cc;
   border-radius: 10px;
   background: #fff;
+}
+
+.camera-box {
+  display: grid;
+  gap: 8px;
+}
+
+.camera-preview {
+  width: 100%;
+  max-height: 240px;
+  border-radius: 10px;
+  border: 1px solid #d2d8cc;
+  background: #000;
+  object-fit: cover;
+}
+
+.camera-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.camera-actions .btn-primary,
+.camera-actions .btn-ghost {
+  flex: 1;
 }
 
 .env {
@@ -319,7 +350,8 @@ body {
   background: #fff;
 }
 
-.btn-primary.block {
+.btn-primary.block,
+.btn-outline.block {
   width: 100%;
 }
 

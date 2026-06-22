@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { predictMango, exampleImageUrl } from "./api.js";
 import { buildHtmlReport, buildTxtReport, downloadHtmlFile, downloadTextFile } from "./report.js";
 
@@ -58,9 +58,77 @@ export default function App() {
   const guidelinesRef = useRef(null);
   const stagesRef = useRef(null);
   const analyzeRef = useRef(null);
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
+
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState("");
 
   const classByLabel = useMemo(() => Object.fromEntries(CLASSES.map((c) => [c.label, c])), []);
   const picked = result ? classByLabel[result.ripeness_class] : null;
+
+  const setImageFile = (f) => {
+    setFile(f);
+    setPreview(f ? URL.createObjectURL(f) : "");
+  };
+
+  const stopCamera = () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setCameraActive(false);
+  };
+
+  const startCamera = async () => {
+    setCameraError("");
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError("Camera access is not supported in this browser.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      setCameraActive(true);
+    } catch (e) {
+      setCameraError(e?.message || "Could not access the camera.");
+    }
+  };
+
+  const capturePhoto = () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || !video.videoWidth) return;
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return;
+        setImageFile(new File([blob], "camera-capture.jpg", { type: "image/jpeg" }));
+        stopCamera();
+      },
+      "image/jpeg",
+      0.92
+    );
+  };
+
+  useEffect(() => {
+    const video = videoRef.current;
+    const stream = streamRef.current;
+    if (cameraActive && video && stream) {
+      video.srcObject = stream;
+      video.play().catch(() => {});
+    }
+  }, [cameraActive]);
+
+  useEffect(() => () => stopCamera(), []);
 
   return (
     <div className="page">
@@ -155,25 +223,40 @@ export default function App() {
 
           <div className="analyze-card">
             <div className="upload-box">
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => {
-                  const f = e.target.files?.[0] || null;
-                  setFile(f);
-                  setPreview(f ? URL.createObjectURL(f) : "");
-                }}
-              />
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={(e) => {
-                  const f = e.target.files?.[0] || null;
-                  setFile(f);
-                  setPreview(f ? URL.createObjectURL(f) : "");
-                }}
-              />
+              <label className="field-label">
+                Upload a mango photo
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    stopCamera();
+                    setImageFile(e.target.files?.[0] || null);
+                  }}
+                />
+              </label>
+
+              <div className="camera-box">
+                <span className="field-label">Or use your camera</span>
+                {!cameraActive ? (
+                  <button type="button" className="btn-outline block" onClick={startCamera}>
+                    Open Camera
+                  </button>
+                ) : (
+                  <>
+                    <video ref={videoRef} className="camera-preview" autoPlay playsInline muted />
+                    <canvas ref={canvasRef} hidden />
+                    <div className="camera-actions">
+                      <button type="button" className="btn-primary" onClick={capturePhoto}>
+                        Capture Photo
+                      </button>
+                      <button type="button" className="btn-ghost" onClick={stopCamera}>
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                )}
+                {cameraError ? <div className="error">{cameraError}</div> : null}
+              </div>
               <div className="env">
                 <label>
                   Temp (deg C)
