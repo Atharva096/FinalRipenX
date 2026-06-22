@@ -13,7 +13,11 @@ import random
 from backend.app.config import MODEL_PATH, BASE_DIR, RF_MODEL_PATH, BASE_DATASET_DIR, ALLOWED_EXTENSIONS
 from backend.app.schemas.response import PredictionResponse, ErrorResponse
 from backend.app.utils.image_processor import ImageProcessor
-from backend.app.utils.mango_validator import WRONG_INPUT_MESSAGE, ensure_mango_image
+from backend.app.utils.mango_validator import (
+    WRONG_INPUT_MESSAGE,
+    ensure_mango_image,
+    ensure_mango_prediction,
+)
 from backend.app.models.predictor import predictor
 
 # Ensure repo root is importable so we can import `feature_extraction.py`
@@ -31,6 +35,12 @@ from export_recommendation import (
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _reject_non_mango_image(exc: ValueError) -> None:
+    if str(exc) == WRONG_INPUT_MESSAGE:
+        raise HTTPException(status_code=400, detail=WRONG_INPUT_MESSAGE) from exc
+    raise exc
 
 app = FastAPI(
     title="Mango Ripeness Detection API",
@@ -142,16 +152,20 @@ async def predict_ripeness(
         from PIL import Image
         import io
         image = Image.open(io.BytesIO(file_bytes)).convert('RGB')
+        image_array = np.array(image)
 
         try:
-            ensure_mango_image(np.array(image))
+            ensure_mango_image(image_array)
         except ValueError as exc:
-            if str(exc) == WRONG_INPUT_MESSAGE:
-                raise HTTPException(status_code=400, detail=WRONG_INPUT_MESSAGE) from exc
-            raise
+            _reject_non_mango_image(exc)
         
         # Make prediction (pass PIL Image, not numpy array)
         prediction = predictor.predict(image)
+
+        try:
+            ensure_mango_prediction(image_array, prediction["class_name"])
+        except ValueError as exc:
+            _reject_non_mango_image(exc)
 
         # Extract HSV+LBP features for RF regression.
         # `extract_combined_features` expects a file path, so we persist the upload to a temp file.
@@ -237,9 +251,10 @@ async def batch_predict(
             
             file_bytes = await file.read()
             image = Image.open(io.BytesIO(file_bytes)).convert('RGB')
+            image_array = np.array(image)
 
             try:
-                ensure_mango_image(np.array(image))
+                ensure_mango_image(image_array)
             except ValueError as exc:
                 if str(exc) == WRONG_INPUT_MESSAGE:
                     results.append({"filename": file.filename, "error": WRONG_INPUT_MESSAGE})
@@ -247,6 +262,14 @@ async def batch_predict(
                 raise
             
             prediction = predictor.predict(image)
+
+            try:
+                ensure_mango_prediction(image_array, prediction["class_name"])
+            except ValueError as exc:
+                if str(exc) == WRONG_INPUT_MESSAGE:
+                    results.append({"filename": file.filename, "error": WRONG_INPUT_MESSAGE})
+                    continue
+                raise
 
             suffix = Path(file.filename).suffix or ".jpg"
             tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
