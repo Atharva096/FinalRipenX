@@ -62,19 +62,48 @@ class MangoRipenessPredictor:
             logger.error(f"❌ Error loading model: {e}")
             raise
     
-    def predict(self, image):
+    def predict(self, image, confidence_threshold=0.75):
         """Make prediction on image (PIL Image or numpy array)"""
         if not self.is_loaded:
             raise RuntimeError("Model not loaded")
         
+        # 1. Get raw prediction from the specific model type
         if self.model_type == "transformers":
-            return self._predict_transformers(image)
+            result = self._predict_transformers(image)
         elif self.model_type == "sklearn":
-            return self._predict_sklearn(image)
+            result = self._predict_sklearn(image)
         elif self.model_type in ["keras", "pytorch"]:
-            return self._predict_dl(image)
+            result = self._predict_dl(image)
         else:
             raise RuntimeError(f"Unknown model type: {self.model_type}")
+            
+        # ==========================================
+        # 2. OUT-OF-DISTRIBUTION (NOT A MANGO) CHECK
+        # ==========================================
+        max_conf = result["confidence"]
+        
+        # Calculate prediction entropy to detect if the model is "confused"
+        probs_array = np.array(list(result["all_probabilities"].values()))
+        entropy = -np.sum(probs_array * np.log(probs_array + 1e-10))
+        max_entropy = np.log(len(probs_array)) # Max possible entropy (uniform distribution)
+        
+        # Image is invalid if confidence is too low OR model is highly confused (high entropy)
+        is_valid_mango = (max_conf >= confidence_threshold) and (entropy <= 0.85 * max_entropy)
+        
+        if not is_valid_mango:
+            logger.warning(f"Rejected non-mango image. Confidence: {max_conf:.2f}, Entropy: {entropy:.2f}")
+            # Override the result to indicate it's not a valid mango
+            result.update({
+                "class_name": "Not a Mango",
+                "class_id": -1,
+                "is_valid_mango": False,
+                "message": "The uploaded image does not appear to be a mango. Please upload a clear image of a mango."
+            })
+        else:
+            result["is_valid_mango"] = True
+            result["message"] = "Valid mango image."
+            
+        return result
     
     def _predict_transformers(self, image):
         """Prediction for Hugging Face Transformers model"""

@@ -15,8 +15,7 @@ from app.schemas.response import PredictionResponse, ErrorResponse
 from app.utils.image_processor import ImageProcessor
 from app.utils.mango_validator import (
     WRONG_INPUT_MESSAGE,
-    ensure_mango_image,
-    ensure_mango_prediction,
+    is_mango_image,
     init_mango_validator,
     validator_status,
 )
@@ -37,33 +36,6 @@ from export_recommendation import (
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-class NotMangoImageError(Exception):
-    """Raised when the uploaded image is determined not to be a mango."""
-    pass
-
-
-def _check_mango_image(image_array) -> None:
-    """Pre-prediction check: verify the raw image looks like a mango."""
-    try:
-        ensure_mango_image(image_array)
-    except ValueError as exc:
-        if str(exc) == WRONG_INPUT_MESSAGE:
-            raise NotMangoImageError(WRONG_INPUT_MESSAGE) from exc
-        raise
-
-
-def _check_mango_prediction(image_array, class_name: str) -> None:
-    """Post-prediction sanity check: verify the predicted class is consistent
-    with a mango image (guards against false positives slipping past the
-    first check)."""
-    try:
-        ensure_mango_prediction(image_array, class_name)
-    except ValueError as exc:
-        if str(exc) == WRONG_INPUT_MESSAGE:
-            raise NotMangoImageError(WRONG_INPUT_MESSAGE) from exc
-        raise
 
 
 app = FastAPI(
@@ -89,12 +61,12 @@ app.add_middleware(
 async def startup_event():
     try:
         predictor.load_model()
-        logger.info("Model loaded successfully on startup")
+        logger.info("✅ Model loaded successfully on startup")
 
         # Load RandomForest regressor used for harvest-time estimation
         global rf_regressor
         rf_regressor = joblib.load(Path(RF_MODEL_PATH))
-        logger.info("RandomForest regressor loaded successfully on startup")
+        logger.info("✅ RandomForest regressor loaded successfully on startup")
 
         # Load a few sample images per class folder for the frontend
         global example_files_by_folder
@@ -112,15 +84,16 @@ async def startup_event():
             files = sorted(files, key=lambda p: p.name)[:20]
             if files:
                 example_files_by_folder[folder] = files
-        logger.info(f"Loaded sample images for classes: {list(example_files_by_folder.keys())}")
+        logger.info(f"✅ Loaded sample images for classes: {list(example_files_by_folder.keys())}")
 
+        # Initialize mango validator
         init_mango_validator()
         status = validator_status()
-        logger.info("Mango validator status: %s", status)
+        logger.info("✅ Mango validator status: %s", status)
         if not status["ready"]:
-            logger.warning("Mango validator NOT ready — non-mango images may slip through")
+            logger.warning("⚠️  Mango validator NOT ready — non-mango images may slip through")
     except Exception as e:
-        logger.error(f"Failed to load model: {e}")
+        logger.error(f"❌ Failed to initialize on startup: {e}", exc_info=True)
         raise
 
 @app.get("/")
@@ -138,7 +111,7 @@ async def health_check():
         "status": "healthy" if predictor.is_loaded else "unhealthy",
         "model_loaded": predictor.is_loaded,
         "mango_validator": validator_status(),
-        "timestamp": datetime.now()
+        "timestamp": datetime.now().isoformat()
     }
 
 @app.get("/example/{ripeness_folder}")
@@ -184,20 +157,27 @@ async def predict_ripeness(
         image = Image.open(io.BytesIO(file_bytes)).convert('RGB')
         image_array = np.array(image)
 
-        # Pre-prediction mango check
-        try:
-            _check_mango_image(image_array)
-        except NotMangoImageError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+        # ✅ Pre-prediction mango validation check
+        logger.info(f"🔍 Validating image: {file.filename}")
+        is_mango, validation_message, similarity = is_mango_image(image_array)
+        
+        if not is_mango:
+            logger.warning(f"❌ Rejected non-mango image: {validation_message} (similarity: {similarity:.3f})")
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": validation_message,
+                    "similarity_score": round(similarity, 3),
+                    "suggestion": "Please upload a clear photo of a mango. Make sure the mango is clearly visible and well-lit."
+                }
+            )
+        
+        logger.info(f"✅ Valid mango image (similarity: {similarity:.3f})")
 
         # Make prediction (pass PIL Image, not numpy array)
+        logger.info(f"🔮 Predicting ripeness for {file.filename}")
         prediction = predictor.predict(image)
-
-        # Post-prediction mango consistency check
-        try:
-            _check_mango_prediction(image_array, prediction["class_name"])
-        except NotMangoImageError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+        logger.info(f"✅ Prediction: {prediction['class_name']} ({prediction['confidence']:.2%})")
 
         # Extract HSV+LBP features for RF regression.
         suffix = Path(file.filename).suffix or ".jpg"
@@ -214,7 +194,7 @@ async def predict_ripeness(
             raise ValueError("Failed to extract texture/color features from image")
 
         cnn_probs = np.array(prediction["probabilities_array"], dtype=np.float32)
-        harvest_days, _, message = predict_harvest(
+        harvest_days, _, harvest_message = predict_harvest(
             rf_regressor,
             cnn_probs,
             texture_color_features,
@@ -229,13 +209,14 @@ async def predict_ripeness(
         )
         regulatory_actions = get_mandatory_regulatory_compliance(export_dest)
         regulatory_block = format_regulatory_compliance_block(export_dest)
-        message = (
-            f"{message}\n"
+        
+        final_message = (
+            f"{harvest_message}\n"
             f"Recommended Export Destination: {export_dest}\n"
             f"Logistics Action Required: {export_logistics}"
         )
         if regulatory_block:
-            message = f"{message}\n{regulatory_block}"
+            final_message = f"{final_message}\n{regulatory_block}"
 
         return PredictionResponse(
             success=True,
@@ -252,13 +233,13 @@ async def predict_ripeness(
             export_logistics_action=export_logistics,
             mandatory_regulatory_compliance=regulatory_actions or None,
             processed_at=datetime.now(),
-            message=message,
+            message=final_message,
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Prediction error: {e}", exc_info=True)
+        logger.error(f"❌ Prediction error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/predict/batch")
@@ -284,19 +265,16 @@ async def batch_predict(
             image = Image.open(io.BytesIO(file_bytes)).convert('RGB')
             image_array = np.array(image)
 
-            try:
-                _check_mango_image(image_array)
-            except NotMangoImageError as e:
-                results.append({"filename": file.filename, "error": str(e)})
+            # ✅ Validate it's a mango
+            is_mango, validation_message, similarity = is_mango_image(image_array)
+            if not is_mango:
+                results.append({
+                    "filename": file.filename, 
+                    "error": f"{validation_message} (similarity: {similarity:.3f})"
+                })
                 continue
 
             prediction = predictor.predict(image)
-
-            try:
-                _check_mango_prediction(image_array, prediction["class_name"])
-            except NotMangoImageError as e:
-                results.append({"filename": file.filename, "error": str(e)})
-                continue
 
             suffix = Path(file.filename).suffix or ".jpg"
             tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
@@ -312,7 +290,7 @@ async def batch_predict(
                 raise ValueError("Failed to extract texture/color features from image")
 
             cnn_probs = np.array(prediction["probabilities_array"], dtype=np.float32)
-            harvest_days, _, message = predict_harvest(
+            harvest_days, _, harvest_message = predict_harvest(
                 rf_regressor,
                 cnn_probs,
                 texture_color_features,
@@ -327,13 +305,14 @@ async def batch_predict(
             )
             regulatory_actions = get_mandatory_regulatory_compliance(export_dest)
             regulatory_block = format_regulatory_compliance_block(export_dest)
-            message = (
-                f"{message}\n"
+            
+            final_message = (
+                f"{harvest_message}\n"
                 f"Recommended Export Destination: {export_dest}\n"
                 f"Logistics Action Required: {export_logistics}"
             )
             if regulatory_block:
-                message = f"{message}\n{regulatory_block}"
+                final_message = f"{final_message}\n{regulatory_block}"
 
             results.append({
                 "filename": file.filename,
@@ -345,10 +324,10 @@ async def batch_predict(
                 "recommended_export_destination": export_dest,
                 "export_logistics_action": export_logistics,
                 "mandatory_regulatory_compliance": regulatory_actions or None,
-                "message": message,
+                "message": final_message,
             })
         except Exception as e:
-            logger.error(f"Batch prediction error for {file.filename}: {e}")
+            logger.error(f"❌ Batch prediction error for {file.filename}: {e}")
             results.append({"filename": file.filename, "error": str(e)})
 
     return {"results": results, "total": len(results)}

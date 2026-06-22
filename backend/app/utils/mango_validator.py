@@ -16,9 +16,9 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-WRONG_INPUT_MESSAGE = "Wrong input entered"
+WRONG_INPUT_MESSAGE = "Wrong input entered. Please upload a valid mango image."
 VALIDATOR_VERSION = "2.0-embedding"
-MIN_EMBEDDING_SIMILARITY = 0.60
+MIN_EMBEDDING_SIMILARITY = 0.55  # Lowered slightly for better recall
 
 _DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 _CENTROID_PATH = _DATA_DIR / "mango_centroid.npy"
@@ -48,22 +48,31 @@ def init_mango_validator() -> None:
     """Load centroid and embedding model once at startup."""
     global _mango_centroid, _validator_ready
 
+    logger.info("Initializing mango validator...")
+    logger.info("Looking for centroid at: %s", _CENTROID_PATH)
+    
     if not _CENTROID_PATH.is_file():
         logger.error("Mango centroid missing at %s", _CENTROID_PATH)
+        logger.error("Please run scripts/build_mango_centroid.py to generate it")
         _validator_ready = False
         return
 
-    _mango_centroid = np.load(_CENTROID_PATH).astype(np.float32)
-    norm = np.linalg.norm(_mango_centroid)
-    if norm > 0:
-        _mango_centroid = _mango_centroid / norm
-
     try:
+        _mango_centroid = np.load(_CENTROID_PATH).astype(np.float32)
+        norm = np.linalg.norm(_mango_centroid)
+        if norm > 0:
+            _mango_centroid = _mango_centroid / norm
+        
+        logger.info("Centroid loaded successfully (shape: %s)", _mango_centroid.shape)
+
         _load_embed_model()
         _validator_ready = True
-        logger.info("Mango validator %s ready (centroid loaded)", VALIDATOR_VERSION)
+        logger.info("✅ Mango validator %s ready (min_similarity=%.2f)", 
+                   VALIDATOR_VERSION, MIN_EMBEDDING_SIMILARITY)
     except Exception as exc:
-        logger.error("Failed to initialize mango validator: %s", exc)
+        logger.error("❌ Failed to initialize mango validator: %s", exc)
+        import traceback
+        logger.error(traceback.format_exc())
         _validator_ready = False
 
 
@@ -73,6 +82,7 @@ def validator_status() -> dict:
         "ready": _validator_ready,
         "centroid_loaded": _mango_centroid is not None,
         "min_similarity": MIN_EMBEDDING_SIMILARITY,
+        "centroid_path": str(_CENTROID_PATH),
     }
 
 
@@ -105,24 +115,33 @@ def embedding_similarity(image_rgb: np.ndarray) -> float:
     return float(np.dot(embedding, _mango_centroid))
 
 
-def is_mango_image(image_rgb: np.ndarray) -> tuple[bool, str]:
+def is_mango_image(image_rgb: np.ndarray) -> tuple[bool, str, float]:
+    """
+    Check if image is a mango.
+    Returns: (is_mango, message, similarity_score)
+    """
     if not _validator_ready or _mango_centroid is None:
-        logger.warning("Embedding validator unavailable; using strict color fallback")
-        return _color_fallback(image_rgb)
+        logger.warning("⚠️  Embedding validator unavailable; using strict color fallback")
+        is_valid, msg = _color_fallback(image_rgb)
+        return is_valid, msg, 0.0
 
     try:
         similarity = embedding_similarity(image_rgb)
+        logger.info("🔍 Embedding similarity score: %.3f (threshold: %.2f)", 
+                   similarity, MIN_EMBEDDING_SIMILARITY)
     except ValueError:
-        return False, WRONG_INPUT_MESSAGE
+        return False, WRONG_INPUT_MESSAGE, 0.0
     except Exception as exc:
         logger.error("Embedding validation failed: %s", exc)
-        return _color_fallback(image_rgb)
+        is_valid, msg = _color_fallback(image_rgb)
+        return is_valid, msg, 0.0
 
     if similarity < MIN_EMBEDDING_SIMILARITY:
-        logger.info("Rejected non-mango image (similarity=%.3f)", similarity)
-        return False, WRONG_INPUT_MESSAGE
+        logger.info("❌ Rejected non-mango image (similarity=%.3f)", similarity)
+        return False, f"Not a mango image (similarity: {similarity:.2f} < {MIN_EMBEDDING_SIMILARITY})", similarity
 
-    return True, "OK"
+    logger.info("✅ Valid mango image (similarity=%.3f)", similarity)
+    return True, "OK", similarity
 
 
 def _color_fallback(image_rgb: np.ndarray) -> tuple[bool, str]:
@@ -155,10 +174,12 @@ def _color_fallback(image_rgb: np.ndarray) -> tuple[bool, str]:
     return True, "OK"
 
 
-def ensure_mango_image(image_rgb: np.ndarray) -> None:
-    is_mango, message = is_mango_image(image_rgb)
-    if not is_mango:
-        raise ValueError(message)
+def ensure_mango_image(image_rgb: np.ndarray) -> tuple[bool, str, float]:
+    """
+    Validate image and return detailed result.
+    Returns: (is_valid, message, similarity_score)
+    """
+    return is_mango_image(image_rgb)
 
 
 def ensure_mango_prediction(_image_rgb: np.ndarray, _predicted_class: str) -> None:
