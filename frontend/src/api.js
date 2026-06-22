@@ -14,7 +14,16 @@ export async function predictMango({ file, temperature, humidity, cultivar = "Al
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Predict failed (${res.status}): ${text}`);
+    let message = text || `Predict failed (${res.status})`;
+    try {
+      const data = JSON.parse(text);
+      if (typeof data.detail === "string") {
+        message = data.detail;
+      }
+    } catch {
+      // keep raw text fallback
+    }
+    throw new Error(message);
   }
   return res.json();
 }

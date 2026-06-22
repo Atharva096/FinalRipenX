@@ -13,6 +13,7 @@ import random
 from backend.app.config import MODEL_PATH, BASE_DIR, RF_MODEL_PATH, BASE_DATASET_DIR, ALLOWED_EXTENSIONS
 from backend.app.schemas.response import PredictionResponse, ErrorResponse
 from backend.app.utils.image_processor import ImageProcessor
+from backend.app.utils.mango_validator import WRONG_INPUT_MESSAGE, ensure_mango_image
 from backend.app.models.predictor import predictor
 
 # Ensure repo root is importable so we can import `feature_extraction.py`
@@ -141,6 +142,13 @@ async def predict_ripeness(
         from PIL import Image
         import io
         image = Image.open(io.BytesIO(file_bytes)).convert('RGB')
+
+        try:
+            ensure_mango_image(np.array(image))
+        except ValueError as exc:
+            if str(exc) == WRONG_INPUT_MESSAGE:
+                raise HTTPException(status_code=400, detail=WRONG_INPUT_MESSAGE) from exc
+            raise
         
         # Make prediction (pass PIL Image, not numpy array)
         prediction = predictor.predict(image)
@@ -229,6 +237,14 @@ async def batch_predict(
             
             file_bytes = await file.read()
             image = Image.open(io.BytesIO(file_bytes)).convert('RGB')
+
+            try:
+                ensure_mango_image(np.array(image))
+            except ValueError as exc:
+                if str(exc) == WRONG_INPUT_MESSAGE:
+                    results.append({"filename": file.filename, "error": WRONG_INPUT_MESSAGE})
+                    continue
+                raise
             
             prediction = predictor.predict(image)
 

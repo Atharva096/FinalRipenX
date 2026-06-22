@@ -291,7 +291,13 @@ export default function App() {
                     const json = await predictMango({ file, temperature, humidity, cultivar });
                     setResult(json);
                   } catch (e) {
-                    setError(e?.message || String(e));
+                    const message = e?.message || String(e);
+                    if (message.includes("Wrong input entered")) {
+                      setError("Wrong input entered");
+                      setResult(null);
+                    } else {
+                      setError(message);
+                    }
                   } finally {
                     setLoading(false);
                   }
