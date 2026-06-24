@@ -15,7 +15,7 @@ from feature_extraction import (
     get_rf_prob_column_names,
     get_visual_feature_column_names,
 )
-from backend.app.config import BASE_DATASET_DIR
+from app.config import BASE_DATASET_DIR
 
 _REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 _LOCAL_DATASET = os.path.join(_REPO_ROOT, "Mango_data", "train")

@@ -16,7 +16,7 @@ from harvest_inference import (
     format_harvest_message,
     load_rf_feature_columns,
 )
-from backend.app.utils.image_processor import ImageProcessor, NotMangoImageError
+from app.utils.image_processor import ImageProcessor, NotMangoImageError
 
 TEST_IMAGE_PATH = r"C:\Users\Izana\Documents\Final-BE-Project\913.jpeg"
 ENVIRONMENT_TEMP = 35
